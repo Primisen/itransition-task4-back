@@ -8,96 +8,59 @@ dotenv.config();
 
 export class UserService {
 
-    register = async (request: Request, response: Response) => {
-        // hash the password
-        bcrypt
-            .hash(request.body.password, 10)
-            .then((hashedPassword) => {
-                // create a new user instance and collect the data
-                const user = new User({
-                    login: request.body.login,
-                    password: hashedPassword,
-                    name: request.body.name,
-                    registrationDate: new Date(),
-                    lastLoginDate: new Date(),
-                    isActive: true
-                });
+    private USER_CREATED_MESSAGE: string = "User created.";
+    private USER_NOT_CREATED_MESSAGE: string = "User not created.";
+    private LOGIN_SUCCESSFUL_MESSAGE: string = "Login successful.";
+    private INCORRECT_PASSWORD_MESSAGE: string = "Password is incorrect.";
+    private INCORRECT_EMAIL_MESSAGE: string = "Email is incorrect.";
+    private USER_SUCCESS_DELETED_MESSAGE: string = "User(s) was deleted.";
+    private USER_NOT_DELETED_MESSAGE: string = "User(s) was not deleted.";
+    private USER_SUCCESS_UPDATED_MESSAGE: string = "User(s) was updated.";
+    private USER_NOT_UPDATED_MESSAGE: string = "User(s) was not updated.";
 
-                // save the new user
+    private SUCCESSFUL_CREATED_STATUS_CODE: number = 201;
+    private SUCCESS_STATUS_CODE: number = 200;
+    private SERVER_ERROR_STATUS_CODE: number = 500;
+    private BAD_REQUEST_STATUS_CODE: number = 400;
+
+
+    register = async (request: Request, response: Response) => {
+        const password = request.body.password;
+        const login = request.body.login;
+        const name = request.body.name;
+        bcrypt
+            .hash(password, Number(process.env.SALT_ROUNDS))
+            .then((hashedPassword) => {
+                const user = this.createUser(login, hashedPassword, name);
                 user
                     .save()
-                    // return success if the new user is added to the database successfully
-                    .then((result) => {
-                        response.status(201).send({
-                            message: "User Created Successfully",
-                            result,
-                        });
+                    .then(() => {
+                        this.sendResponse(response, this.SUCCESSFUL_CREATED_STATUS_CODE, this.USER_CREATED_MESSAGE);
                     })
-                    // catch error if the new user wasn't added successfully to the database
-                    .catch((error) => {
-                        response.status(500).send({
-                            message: "Error creating user",
-                            error,
-                        });
+                    .catch(() => {
+                        this.sendResponse(response, this.SERVER_ERROR_STATUS_CODE, this.USER_NOT_CREATED_MESSAGE);
                     });
             })
-            // catch error if the password hash isn't successful
-            .catch((e) => {
-                response.status(500).send({
-                    message: "Password was not hashed successfully",
-                    e,
-                });
-            });
     };
 
     login = async (request: Request, response: Response) => {
-        const login = request.body.login;//copy code
+        const login = request.body.login;
         const password = request.body.password;
-        User.findOne({
-            where: {
-                login: login
-            }
-        })
+        this.getUser(login)
             .then((user) => {
                 bcrypt
                     .compare(password, user.password)
-                    .then((passwordIsCorrect) => {
-                        if (!passwordIsCorrect) {
-                            return response.status(400).send({
-                                message: "Passwords does not match",
-                            });
+                    .then((passwordsIsEquals) => {
+                        if (passwordsIsEquals) {
+                            const token = this.createToken(user);
+                            this.sendResponseWithToken(response, this.SUCCESS_STATUS_CODE, this.LOGIN_SUCCESSFUL_MESSAGE, token);
+                        } else {
+                            this.sendResponse(response, this.BAD_REQUEST_STATUS_CODE, this.INCORRECT_PASSWORD_MESSAGE);
                         }
-
-                        const token = jwt.sign(
-                            {
-                                id: user.id,
-                                // login: user.login, //need it
-                            },
-                            "RANDOM-TOKEN",//generim
-                            //  process.env.JWT_SECRET,
-                            {expiresIn: "24h"}
-                            // {expiresIn: process.env.JWT_EXPIRES_IN}
-                        );
-
-                        response.status(200).send({
-                            message: "Login Successful",
-                            login: user.login,
-                            token,
-                        });
                     })
-                    // catch error if password does not match
-                    .catch((error) => {
-                        response.status(400).send({
-                            message: "Passwords does not match",
-                            error,
-                        });
-                    });
             })
-            .catch((e) => {
-                response.status(404).send({//really, 404??
-                    message: "Email is incorrect",
-                    e,
-                });
+            .catch(() => {
+                this.sendResponse(response, this.BAD_REQUEST_STATUS_CODE, this.INCORRECT_EMAIL_MESSAGE);
             });
     }
 
@@ -106,17 +69,13 @@ export class UserService {
     };
 
     delete = async (request: Request, response: Response) => {
-
-        console.log(request)
         try {
             request.body.id?.map(async (id: string) => {
                 await User.destroy({where: {id: parseInt(id)}});
             })
-
-            response.sendStatus(200);
+            this.sendResponse(response, this.SUCCESS_STATUS_CODE, this.USER_SUCCESS_DELETED_MESSAGE);
         } catch (e) {
-            console.log(e)
-            response.status(500).send();
+            this.sendResponse(response, this.SERVER_ERROR_STATUS_CODE, this.USER_NOT_DELETED_MESSAGE);
         }
     }
 
@@ -127,28 +86,14 @@ export class UserService {
                 user.isActive = request.body.isActive;
                 await user.save();
             })
-
-            response.sendStatus(200);
+            this.sendResponse(response, this.SUCCESS_STATUS_CODE, this.USER_SUCCESS_UPDATED_MESSAGE);
         } catch (e) {
-            console.log(e)
-            response.status(500).send();
+            this.sendResponse(response, this.SERVER_ERROR_STATUS_CODE, this.USER_NOT_UPDATED_MESSAGE);
         }
     };
 
-    // private hash(password: string) {
-    //     return bcrypt.hashSync(password, salt)//salt
-    // }
-
-    private async userIsNotExists(login: string) {
-        return await this.getUser(login) === null;
-    }
-
-    private async userIsExists(login: string) {
-        return await this.getUser(login) !== null;
-    }
-
-    private async getUser(login: string) {
-        return await User.findOne({
+    private getUser(login: string) {
+        return User.findOne({
             where: {
                 login: login
             }
@@ -161,5 +106,41 @@ export class UserService {
                 id: id
             }
         });
+    }
+
+    private sendResponse(response: Response, statusCode: number, message: string) {
+        response
+            .status(statusCode)
+            .send(message);
+    }
+
+    private sendResponseWithToken(response: Response, statusCode: number, message: string, token: string) {
+        response.status(statusCode).send({
+            message: message,
+            token,
+        });
+    }
+
+    private createUser(login: string, password: string, name: string) {
+        const user = new User({
+            login: login,
+            password: password,
+            name: name,
+            registrationDate: new Date(),
+            lastLoginDate: new Date(),
+            isActive: true
+        });
+        return user;
+    }
+
+    private createToken(user: User) {
+        const token = jwt.sign(
+            {
+                id: user.id,
+            },
+            process.env.JWT_SECRET,
+            {expiresIn: process.env.JWT_EXPIRES_IN}
+        );
+        return token;
     }
 }

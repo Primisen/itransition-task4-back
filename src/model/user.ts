@@ -46,7 +46,6 @@ export class User extends Model {
 
     @Column({
         type: DataType.DATE,
-        // allowNull: false,
     })
     lastLoginDate!: Date;
 
