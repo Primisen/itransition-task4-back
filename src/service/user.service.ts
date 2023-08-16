@@ -17,6 +17,8 @@ export class UserService {
     private USER_NOT_DELETED_MESSAGE: string = "User(s) was not deleted.";
     private USER_SUCCESS_UPDATED_MESSAGE: string = "User(s) was updated.";
     private USER_NOT_UPDATED_MESSAGE: string = "User(s) was not updated.";
+    private EMAIL_ALREADY_EXISTS: string = "User with entered email already exists. Enter another email.";
+
 
     private SUCCESSFUL_CREATED_STATUS_CODE: number = 201;
     private SUCCESS_STATUS_CODE: number = 200;
@@ -37,8 +39,10 @@ export class UserService {
                     .then(() => {
                         this.sendResponse(response, this.SUCCESSFUL_CREATED_STATUS_CODE, this.USER_CREATED_MESSAGE);
                     })
-                    .catch(() => {
-                        this.sendResponse(response, this.SERVER_ERROR_STATUS_CODE, this.USER_NOT_CREATED_MESSAGE);
+                    .catch((e) => {
+                        this.loginIsUnique(login)
+                            ? this.sendResponse(response, this.SERVER_ERROR_STATUS_CODE, this.USER_NOT_CREATED_MESSAGE)
+                            : this.sendResponse(response, this.BAD_REQUEST_STATUS_CODE, this.EMAIL_ALREADY_EXISTS);
                     });
             })
     };
@@ -142,5 +146,9 @@ export class UserService {
             {expiresIn: process.env.JWT_EXPIRES_IN}
         );
         return token;
+    }
+
+    private loginIsUnique(login: string) {
+        return this.getUser(login) == null;
     }
 }
